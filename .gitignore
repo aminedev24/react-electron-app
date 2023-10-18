@@ -1,0 +1,13 @@
+
+dist/builder-debug.yml
+*.yaml
+*.exe
+*.blockmap
+*.pak
+*.dll
+*.dat
+dist/win-unpacked/LICENSE.electron.txt
+dist/win-unpacked/LICENSES.chromium.html
+*.asar
+*.bin
+dist/win-unpacked/vk_swiftshader_icd.json

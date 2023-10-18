@@ -1,0 +1,28 @@
+ {
+    "appId": "my-electron-app",
+    "productName": "My Electron App",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "files": [
+      "react-app/build/**/*",
+      "node_modules/**/*",
+      "react-app/node_modules/**/*",
+      "react-app/public/**/*",
+      "main.js",
+      "react-app/package.json",
+      "package.json",
+      "preload.js"
+    ]
+    
+  }
+  
