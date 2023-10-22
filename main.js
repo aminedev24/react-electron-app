@@ -80,6 +80,7 @@ console.log(userDataPath)
 async function readDataFromJsonFile(filePath) {
   try {
     const data = await fs.promises.readFile(filePath, 'utf8');
+    //console.log(data)
     return JSON.parse(data);
   } catch (err) {
     console.error(`Error reading ${filePath}:`, err);
@@ -107,7 +108,7 @@ ipcMain.on('getDataFromDirectory', async (event) => {
     const materialsJsonData = await readDataFromJsonFile(MaterialsDataFilePath) || [];
     const productsJsonData = await readDataFromJsonFile(ProductsDataFilePath) || [];
 
-    
+    //console.log(productsJsonData)
 
     event.reply('getDataResponse', {
       success: true,
@@ -120,6 +121,7 @@ ipcMain.on('getDataFromDirectory', async (event) => {
     event.reply('getDataResponse', { success: false, error: error.message });
   }
 });
+
 
 
 
