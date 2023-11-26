@@ -34,7 +34,9 @@
 
     "electron-is-dev": "^2.0.0",
 
-    "react-beautiful-dnd": "^13.1.1"
+    "react-beautiful-dnd": "^13.1.1",
+
+    "uuid": "^9.0.1"
 
   }
 
