@@ -1,0 +1,8 @@
+version: 1.0.0
+files:
+  - url: My-Electron-App-Setup-1.0.0.exe
+    sha512: 9dn0+4drMPYZ7Gxd40fdW8g7l3OnuOBqAvuT5gyNWqtUVi6skHM8QEkVllsvx82JRi3J+O1cAyeGD0e5UqJ19A==
+    size: 76047818
+path: My-Electron-App-Setup-1.0.0.exe
+sha512: 9dn0+4drMPYZ7Gxd40fdW8g7l3OnuOBqAvuT5gyNWqtUVi6skHM8QEkVllsvx82JRi3J+O1cAyeGD0e5UqJ19A==
+releaseDate: '2024-02-27T22:24:37.022Z'

@@ -3,9 +3,29 @@ const fs = require('fs');
 const path = require('path');
 const isDev = require('electron-is-dev');
 
+// Directory paths
+const userDataPath = app.getPath('userData');
+console.log(userDataPath)
+const dataDirectoryPath = path.join(userDataPath, 'myDataDirectory');
+const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialData.json');
+const ProductsDataFilePath = path.join(dataDirectoryPath, 'productData.json');
+const TransactionsFilePath = path.join(dataDirectoryPath, 'transactionData.json');
+const CategoriesDataFilePath = path.join(dataDirectoryPath, 'categoriesData.json');
+const formDataHistoryFilePath = path.join(dataDirectoryPath, 'formDataHistory.json');
 
-// ... (previous code)
-let appData = [];
+// Ensure data directory and files exist
+const createDataDirectoryAndFiles = (filePath, defaultValue) => {
+  if (!fs.existsSync(filePath)) {
+    console.log(`${filePath} doesn't exist creating ${filePath}...`)
+    fs.writeFileSync(filePath, JSON.stringify(defaultValue));
+  }
+};
+
+createDataDirectoryAndFiles(formDataHistoryFilePath, []);
+createDataDirectoryAndFiles(CategoriesDataFilePath, []);
+createDataDirectoryAndFiles(ProductsDataFilePath, []);
+createDataDirectoryAndFiles(MaterialsDataFilePath, []);
+createDataDirectoryAndFiles(TransactionsFilePath, {});
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -20,28 +40,19 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000'); // Development
-    //mainWindow.loadFile(path.join(__dirname, '/react-app/build', 'index.html'))
     mainWindow.webContents.openDevTools();
     console.log('Running in dev mode');
   } else {
     mainWindow.loadFile(path.join(__dirname, '/react-app/build', 'index.html')); // Production
   }
 
-  
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.webContents.send('initialData', appData);
-  });
-
+ 
   mainWindow.webContents.on('beforeunload', (event) => {
-    // Add your logic to handle the refresh event here
     event.preventDefault();
   });
-  
 }
 
 app.whenReady().then(createWindow);
-
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -49,261 +60,255 @@ app.on('window-all-closed', () => {
   }
 });
 
-// ... (rest of the code)
-
-// Create a directory within the userData path to store JSON files
-const userDataPath = app.getPath('userData');
-const dataDirectoryPath = path.join(userDataPath, 'myDataDirectory');
-
-if (!fs.existsSync(dataDirectoryPath)) {
-  fs.mkdirSync(dataDirectoryPath);
-}
-
-const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-const ProductsDataFilePath = path.join(dataDirectoryPath, 'productsData.json');
-const transactionsFilePath = path.join(dataDirectoryPath, 'transactions.json');
-
-// Create productsData.json if it doesn't exist
-if (!fs.existsSync(ProductsDataFilePath)) {
-  // Create an empty array if the file doesn't exist
-  fs.writeFileSync(ProductsDataFilePath, '[]');
-}
-
-// Create materialsData.json if it doesn't exist
-if (!fs.existsSync(MaterialsDataFilePath)) {
-  // Create an empty array if the file doesn't exist
-  fs.writeFileSync(MaterialsDataFilePath, '[]');
-}
-
-
-// Create transactions.json if it doesn't exist
-if (!fs.existsSync(transactionsFilePath)) {
-  // Create an empty array if the file doesn't exist
-  fs.writeFileSync(transactionsFilePath, '{}');
-}
-
-
-
-console.log(userDataPath)
-// Function to read data from a JSON file
-// Function to read data from a JSON file
-async function readDataFromJsonFile(filePath) {
+// Helper function to read data from a JSON file
+const readDataFromJsonFile = async (filePath) => {
   try {
     const data = await fs.promises.readFile(filePath, 'utf8');
-    //console.log(data)
+    //console.log(`Read data from ${filePath}:`, data);
     return JSON.parse(data);
   } catch (err) {
     console.error(`Error reading ${filePath}:`, err);
     return null;
   }
-}
+};
 
-// Function to write data to a JSON file
-async function writeDataToJsonFile(filePath, data) {
+const writeDataToJsonFile = async (filePath, data) => {
   try {
-    await fs.promises.writeFile(filePath, JSON.stringify(data));
+    await fs.promises.writeFile(filePath, JSON.stringify(data,null,2));
     console.log(`Data saved to ${filePath}`);
     return true;
   } catch (err) {
     console.error(`Error writing ${filePath}:`, err);
     return false;
   }
-}
+};
 
-// Handle IPC event to save transactions
-ipcMain.on('saveTransactions', (event, transactions) => {
-  saveTransactionsToFile(transactions);
-  //console.log(transactions)
-  event.sender.send('transactionsSaved', 'Transactions saved successfully');
-});
-// ...
+let isQuantitiesAccumulated = false;
 
-ipcMain.on('getDataFromDirectory', async (event) => {
-
+ipcMain.on('updateProductQuantitiesFromHistory', async (event) => {
   try {
+    const productData = await readDataFromJsonFile(ProductsDataFilePath);
+    const historyData = await readDataFromJsonFile(formDataHistoryFilePath) || [];
+
+    // Update product quantities from history
+    productData.forEach((product) => {
+      const productHistory = historyData.find((entry) => entry.productName === product.productName);
+      if (productHistory && Array.isArray(productHistory.history)) {
+        const totalQuantity = productHistory.history.reduce(
+          (total, entry) => total + (entry.quantity || 0),
+          0
+        );
+        product.quantity = totalQuantity;
+      }
+    });
+
+    await writeDataToJsonFile(ProductsDataFilePath, productData);
+
+    //console.log('Product quantities updated from history:', productData);
+    event.reply('updateProductQuantitiesFromHistoryResponse', { success: true });
+  } catch (error) {
+    console.error('Error updating product quantities from history:', error);
+    event.reply('updateProductQuantitiesFromHistoryResponse', {
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+
+
+
+ipcMain.on('updateProductHistory', async (event, productInfo) => {
+  try {
+    const { productName, quantitySold, selectedHistoryEntry } = productInfo;
+    const isReturnMode = productInfo.returnMode;
+    console.log(`Updating product history for:`, productName);
+    console.log(`Quantity sold:`, quantitySold);
+
+    const productHistoryFilePath = path.join(formDataHistoryFilePath);
+    console.log('Product history file path:', productHistoryFilePath);
+
+    let existingProductHistory = await readDataFromJsonFile(productHistoryFilePath) || [];
+    console.log('Existing product history before update:', existingProductHistory);
+
+    const updatedProductHistory = existingProductHistory.map((product) => {
+      if (product.productName === productName) {
+        return {
+          ...product,
+          history: product.history.map((entry) => {
+            if (entry.submissionTime === selectedHistoryEntry.submissionTime) {
+              // Update the quantity in the selected entry
+              entry.quantity = isReturnMode ? entry.quantity + quantitySold : entry.quantity - quantitySold;
+              console.log(`Updated quantity for ${productName} to:`, entry.quantity);
+            }
+            return entry;
+          }),
+        };
+      }
+      return product;
+    });
+
+    await writeDataToJsonFile(productHistoryFilePath, updatedProductHistory);
+    console.log('Product history updated successfully.');
+
+    event.reply('updateProductHistoryResponse', { success: true, quantitySold });
+  } catch (error) {
+    console.error('Error updating product history:', error);
+    event.reply('updateProductHistoryResponse', { success: false, error: error.message });
+  }
+});
+
+
+
+
+
+ipcMain.on('saveProductHistory', async (event, { productName, historyEntry }) => {
+  console.log(`Received saveProductHistory event for ${productName}:`, historyEntry);
+  try {
+    let historyData = await readDataFromJsonFile(formDataHistoryFilePath) || [];
+    console.log(`historyData`, historyData);
+
+    // Find the product entry in historyData or create one
+    const productHistory = historyData.find(entry => entry.productName === productName);
+    
+    if (productHistory) {
+      // Product entry found, push the new historyEntry
+      productHistory.history.push(historyEntry);
+    } else {
+      // Product entry not found, create a new entry
+      historyData.push({
+        productName: productName,
+        history: [historyEntry],
+      });
+    }
+
+    console.log('Updated history data:', historyData);
+    await writeDataToJsonFile(formDataHistoryFilePath, historyData);
+    event.reply('saveProductHistoryResponse', { success: true });
+  } catch (error) {
+    console.error(`Failed to save product history for ${productName}:`, error);
+    event.reply('saveProductHistoryResponse', { success: false, error: error.message });
+  }
+});
+
+
+
+ipcMain.on('requestProductHistory', async (event, productName) => {
+  try {
+    //console.log('Fetching product history for:', productName);
+
+    const historyData = await readDataFromJsonFile(formDataHistoryFilePath) || [];
+    const productEntry = historyData.find((entry) => entry.productName === productName);
+    const productHistory = productEntry ? productEntry.history || [] : [];
+
+    // Log the product history for debugging purposes
+    console.log('Product history fetched:', productHistory);
+
+    event.reply('productHistoryResponse', { success: true, data: productHistory });
+  } catch (error) {
+    console.error('Error fetching product history:', error);
+
+    event.reply('productHistoryResponse', { success: false, error: error.message });
+  }
+});
+
+
+
+
+
+// IPC event to save data
+// IPC event to save data
+ipcMain.on('saveData', async (event, data) => {
+  const filePath = path.join(dataDirectoryPath, `${data.type.toLowerCase()}Data.json`);
+  try {
+    let writeResult = await writeDataToJsonFile(filePath, data);
+    //console.log(`Write result for ${data.type} data:`, writeResult);
+    event.reply('saveDataResponse', { success: true });
+  } catch (error) {
+    event.reply('saveDataResponse', { success: false, error: error.message });
+  }
+});
+
+// IPC event to get data from files
+// IPC event to get data from files
+ipcMain.on('getDataFromDirectory', async (event) => {
+  try {
+    //console.log('Data directory exists:', fs.existsSync(dataDirectoryPath));
+
     const materialsJsonData = await readDataFromJsonFile(MaterialsDataFilePath) || [];
     const productsJsonData = await readDataFromJsonFile(ProductsDataFilePath) || [];
-    const transactionsJsonData = await readDataFromJsonFile(transactionsFilePath) || {};
-
-    //console.log(productsJsonData)
-
+    const transactionsJsonData = await readDataFromJsonFile(TransactionsFilePath) || {};
+    const productHistoryJsonData = await readDataFromJsonFile(formDataHistoryFilePath || {})
+    //console.log(productHistoryJsonData)
     event.reply('getDataResponse', {
       success: true,
-      data: {
-        materialsData: materialsJsonData,
-        productsData: productsJsonData,
-        transactionsData: transactionsJsonData
-      },
+      data: { materialsData: materialsJsonData, productsData: productsJsonData, transactionsData: transactionsJsonData,productHistoryData:productHistoryJsonData  },
     });
   } catch (error) {
     event.reply('getDataResponse', { success: false, error: error.message });
   }
 });
 
-
-ipcMain.on('saveData', async (event, data) => {
-  const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-  const ProductsDataFilePath = path.join(dataDirectoryPath, 'productsData.json');
-  const transactionsFilePath = path.join(dataDirectoryPath, 'transactions.json');
-
-  try {
-    if (data.type === 'material' || data.type === 'product') {
-      // Handle saving materials and products data
-      const filePath = data.type === 'material' ? MaterialsDataFilePath : ProductsDataFilePath;
-      if (await writeDataToJsonFile(filePath, data)) {
-        event.reply('saveDataResponse', { success: true });
-      } else {
-        event.reply('saveDataResponse', { success: false, error: 'Failed to save data' });
-      }
-    } else if (data.type === 'transaction') {
-      // Handle saving transactions separately
-      const existingTransactions = await readDataFromJsonFile(transactionsFilePath) || {};
-      const newTransactions = { ...existingTransactions, ...data };
-
-      if (await writeDataToJsonFile(transactionsFilePath, newTransactions)) {
-        event.reply('saveDataResponse', { success: true });
-      } else {
-        event.reply('saveDataResponse', { success: false, error: 'Failed to save data' });
-      }
-    } else {
-      event.reply('saveDataResponse', { success: false, error: 'Unknown data type' });
-    }
-  } catch (error) {
-    event.reply('saveDataResponse', { success: false, error: error.message });
-  }
-});
-
-
-// ...
-
+// IPC event to delete data
 ipcMain.on('deleteData', async (event, data) => {
+  const filePath = path.join(dataDirectoryPath, `${data.type.toLowerCase()}Data.json`);
+  const historyFilePath = path.join(dataDirectoryPath, 'formDataHistory.json');
+  console.log(filePath);
+
   try {
-    if (data.type === 'material') {
-      const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-      const existingMaterialsData = await readDataFromJsonFile(MaterialsDataFilePath) || [];
-  
-      const updatedMaterialsData = existingMaterialsData.filter((material) => material.id !== data.id);
-  
-      if (await writeDataToJsonFile(MaterialsDataFilePath, updatedMaterialsData)) {
-        event.reply('deleteDataResponse', { success: true });
-      } else {
-        event.reply('deleteDataResponse', { success: false, error: 'Failed to delete data' });
-      }
-    } else if (data.type === 'product') {
-      const ProductsDataFilePath = path.join(dataDirectoryPath, 'productsData.json');
-      const existingProductsData = await readDataFromJsonFile(ProductsDataFilePath) || [];
-  
-      const updatedProductsData = existingProductsData.filter(
-        (product) => product.id !== data.productToDelete.id
-      );
-  
-      if (await writeDataToJsonFile(ProductsDataFilePath, updatedProductsData)) {
-        event.reply('deleteDataResponse', { success: true });
-      } else {
-        event.reply('deleteDataResponse', { success: false, error: 'Failed to delete data' });
-      }
-    }
+    // Delete product data
+    const existingData = await readDataFromJsonFile(filePath) || [];
+    //console.log('Existing data:', existingData);
+
+    const updatedData = existingData.filter(item => item.id !== data.id);
+    //console.log('Updated data:', updatedData);
+
+    await writeDataToJsonFile(filePath, updatedData);
+
+    // Delete associated history data
+    const historyData = await readDataFromJsonFile(historyFilePath) || {};
+    delete historyData[data.productName];
+    await writeDataToJsonFile(historyFilePath, historyData);
+
+    event.reply('deleteDataResponse', { success: true });
   } catch (error) {
+    console.error('Error deleting data:', error);
     event.reply('deleteDataResponse', { success: false, error: error.message });
   }
 });
 
-// ...
 
+
+// IPC event to modify data
 ipcMain.on('modify', async (event, modifiedData) => {
+  const filePath = path.join(dataDirectoryPath, `${modifiedData.type.toLowerCase()}Data.json`);
   try {
-    if (modifiedData.type === 'material') {
-      const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-      const existingMaterialsData = await readDataFromJsonFile(MaterialsDataFilePath) || [];
-  
-      const materialIndex = existingMaterialsData.findIndex((material) => material.id === modifiedData.id);
-  
-      if (materialIndex !== -1) {
-        existingMaterialsData[materialIndex] = modifiedData;
-  
-        if (await writeDataToJsonFile(MaterialsDataFilePath, existingMaterialsData)) {
-          event.reply('modifyMaterialResponse', { success: true });
-        } else {
-          event.reply('modifyMaterialResponse', { success: false, error: 'Failed to modify data' });
-        }
-      } else {
-        event.reply('modifyMaterialResponse', { success: false, error: 'Material not found' });
-      }
-    } else if (modifiedData.type === 'product') {
-      const ProductsDataFilePath = path.join(dataDirectoryPath, 'productsData.json');
-      const existingProductsData = await readDataFromJsonFile(ProductsDataFilePath) || [];
-  
-      const productIndex = existingProductsData.findIndex((product) => product.id === modifiedData.id);
-  
-      if (productIndex !== -1) {
-        existingProductsData[productIndex] = modifiedData;
-  
-        if (await writeDataToJsonFile(ProductsDataFilePath, existingProductsData)) {
-          event.reply('modifyProductResponse', { success: true });
-        } else {
-          event.reply('modifyProductResponse', { success: false, error: 'Failed to modify data' });
-        }
-      } else {
-        event.reply('modifyProductResponse', { success: false, error: 'Product not found' });
-      }
+    const existingData = await readDataFromJsonFile(filePath) || [];
+    const dataIndex = existingData.findIndex(item => item.id === modifiedData.id);
+    if (dataIndex !== -1) {
+      existingData[dataIndex] = modifiedData;
+      await writeDataToJsonFile(filePath, existingData);
+      event.reply(`modify${modifiedData.type}Response`, { success: true });
+    } else {
+      event.reply(`modify${modifiedData.type}Response`, { success: false, error: `${modifiedData.type} not found` });
     }
   } catch (error) {
-    event.reply('modifyMaterialResponse', { success: false, error: error.message });
+    event.reply(`modify${modifiedData.type}Response`, { success: false, error: error.message });
   }
 });
 
-
-// Handle updating material quantities
-ipcMain.on('updateMaterialQuantities', (event, updatedMaterialsData) => {
-  const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-  console.log(updatedMaterialsData)
-  // Update the material data in your data source (e.g., JSON file)
-  try {
-    fs.writeFileSync(MaterialsDataFilePath, JSON.stringify(updatedMaterialsData));
-    console.log('Material quantities updated and saved successfully.');
-    event.reply('updateMaterialQuantitiesResponse', { success: true });
-  } catch (err) {
-    console.error('Error updating material quantities:', err);
-    event.reply('updateMaterialQuantitiesResponse', { success: false, error: 'Failed to update material quantities' });
-  }
-});
-
-ipcMain.on('updateQuantities', (event, payload) => {
+// IPC event to update quantities
+ipcMain.on('updateQuantities', async (event, payload) => {
   const { data, type } = payload;
-
-  // Handle the update based on the type (e.g., material, transaction, etc.)
-  if (type === 'material') {
-      const MaterialsDataFilePath = path.join(dataDirectoryPath, 'materialsData.json');
-      //console.log(payload)
-      // Update the material data in your data source (e.g., JSON file)
-      try {
-        fs.writeFileSync(MaterialsDataFilePath, JSON.stringify(data));
-        console.log('Material quantities updated and saved successfully.');
-        event.reply('updateMaterialQuantitiesResponse', { success: true });
-      } catch (err) {
-        console.error('Error updating material quantities:', err);
-        event.reply('updateMaterialQuantitiesResponse', { success: false, error: 'Failed to update material quantities' });
-      }
-  } 
-  else if (type === 'transaction') {
-    // Handle transaction update
-    //console.log(data)
-     const ProductsDataFilePath = path.join(dataDirectoryPath, 'productsData.json');
-     //console.log(data);
-      try {
-        fs.writeFileSync(ProductsDataFilePath, JSON.stringify(data));
-        console.log('Product quantities updated and saved successfully.');
-        event.reply('updateProductsQuantitiesResponse', { success: true });
-      } catch (err) {
-        console.error('Error updating product quantities:', err);
-        event.reply('updateProductQuantitiesResponse', { success: false, error: 'Failed to update product quantities' });
-      }
-       
-}
-  // Handle other data types if needed
+  const filePath = path.join(dataDirectoryPath, `${type.toLowerCase()}Data.json`);
+  try {
+    await writeDataToJsonFile(filePath, data);
+    //console.log(`${type} quantities updated and saved successfully.`);
+    event.reply(`update${type}QuantitiesResponse`, { success: true });
+  } catch (err) {
+    console.error(`Error updating ${type} quantities:`, err);
+    event.reply(`update${type}QuantitiesResponse`, { success: false, error: `Failed to update ${type} quantities` });
+  }
 });
 
-
-// ...
-
-// ...
+// ... (other IPC events)
